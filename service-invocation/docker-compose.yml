@@ -1,0 +1,97 @@
+version: "3.9"
+
+services:
+  # ===================== SIDECARS (devem vir primeiro) =====================
+  service-a-daprd:
+    image: "daprio/daprd:1.14.4"
+    command: [
+      "./daprd",
+      "-app-id","orders",
+      "-app-port","8001",
+      "-dapr-http-port","3500",
+      "-dapr-grpc-port","50001",
+      "-metrics-port","9092",
+      "-config","/dapr/config.yaml"
+    ]
+    ports:
+      - "3500:3500"  # Porta HTTP do sidecar exposta
+      - "50001:50001"  # Porta gRPC do sidecar exposta
+      - "9092:9092"  # Porta de métricas do sidecar exposta
+    volumes:
+      - ./dapr:/dapr
+    depends_on: [otel-collector]
+
+  service-b-daprd:
+    image: "daprio/daprd:1.14.4"
+    command: [
+      "./daprd",
+      "-app-id","payments",
+      "-app-port","8002",
+      "-dapr-http-port","3501",
+      "-dapr-grpc-port","50002",
+      "-metrics-port","9091",
+      "-config","/dapr/config.yaml"
+    ]
+    ports:
+      - "3501:3501"  # Porta HTTP do sidecar exposta
+      - "50002:50002"  # Porta gRPC do sidecar exposta
+      - "9091:9091"  # Porta de métricas do sidecar exposta
+    volumes:
+      - ./dapr:/dapr
+    depends_on: [otel-collector]
+
+  # ===================== APPS (ficam atrás dos sidecars) =====================
+  service-a:
+    build: ./services/service-a
+    container_name: service-a
+    network_mode: "service:service-a-daprd"
+    environment:
+      - DAPR_HTTP=http://localhost:3500
+      - TARGET_APP_ID=payments
+    depends_on: [service-a-daprd]
+
+  service-b:
+    build: ./services/service-b
+    container_name: service-b
+    network_mode: "service:service-b-daprd"
+    environment:
+      - DAPR_HTTP=http://localhost:3501
+    depends_on: [service-b-daprd]
+
+  # ===================== OBSERVABILITY =====================
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.103.1
+    container_name: otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel/collector.yaml"]
+    volumes:
+      - ./otel/collector.yaml:/etc/otel/collector.yaml:ro
+    depends_on: [jaeger]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: prometheus
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on: [otel-collector]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: jaeger
+    restart: unless-stopped
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - METRICS_STORAGE_TYPE=prometheus
+      - PROMETHEUS_SERVER_URL=http://prometheus:9090
+      # Desabilitar completamente a auto-instrumentação do Jaeger
+      - OTEL_TRACES_EXPORTER=none
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+      - OTEL_SDK_DISABLED=true
+    ports:
+      - "16686:16686"

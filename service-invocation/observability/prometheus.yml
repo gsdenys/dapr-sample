@@ -1,0 +1,27 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # Métricas dos apps FastAPI via Dapr sidecar
+  - job_name: "api-services"
+    static_configs:
+      - targets: ["service-a-daprd:3500"]
+        labels:
+          app_id: "orders"
+          service_type: "fastapi"
+          metrics_path: "/v1.0/invoke/orders/method/metrics"
+      - targets: ["service-b-daprd:3501"]
+        labels:
+          app_id: "payments"
+          service_type: "fastapi"
+          metrics_path: "/v1.0/invoke/payments/method/metrics"
+    relabel_configs:
+      - source_labels: [metrics_path]
+        target_label: __metrics_path__
+
+  # Métricas dos sidecars Dapr (porta padrão 9090)
+  - job_name: "dapr-sidecars"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["service-a-daprd:9092", "service-b-daprd:9091"]

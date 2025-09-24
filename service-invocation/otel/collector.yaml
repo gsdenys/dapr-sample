@@ -1,0 +1,64 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+connectors:
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s]
+    dimensions:
+      - name: http.method
+      - name: http.status_code
+    metrics_flush_interval: 15s
+
+exporters:
+  otlphttp/jaeger:
+    endpoint: http://jaeger:4318
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: spanmetrics
+
+processors:
+  batch:
+  filter/jaeger:
+    spans:
+      exclude:
+        match_type: regexp
+        span_names:
+          - "jaeger-all-in-one:.*"
+          - ".*jaeger.*"
+        attributes:
+          - key: service.name
+            value: "jaeger.*"
+          - key: http.target
+            value: "/api/.*"
+        resources:
+          - key: service.name
+            value: "jaeger.*"
+
+  filter/metrics:
+    spans:
+      exclude:
+        match_type: regexp
+        span_names:
+          - "CallLocal/.*/metrics"
+          - "CallLocal/.*/health"
+          - ".*method/metrics.*"
+          - ".*method/health.*"
+          - ".*jaeger.*"
+
+  
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [filter/jaeger, filter/metrics, batch]
+      exporters: [otlphttp/jaeger, spanmetrics]
+    metrics:
+      receivers: [spanmetrics]
+      processors: [batch]
+      exporters: [prometheus]
