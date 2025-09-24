@@ -1,7 +1,5 @@
-version: "3.9"
-
 services:
-  # ===================== SIDECARS (devem vir primeiro) =====================
+  # ===================== SIDECARS (devem vir primeiro) ====================
   service-a-daprd:
     image: "daprio/daprd:1.14.4"
     command: [
@@ -65,6 +63,8 @@ services:
     container_name: otel-collector
     restart: unless-stopped
     command: ["--config=/etc/otel/collector.yaml"]
+    ports:
+      - "8889:8889"  # Porta de métricas do spanmetrics connector
     volumes:
       - ./otel/collector.yaml:/etc/otel/collector.yaml:ro
     depends_on: [jaeger]
@@ -81,17 +81,18 @@ services:
     depends_on: [otel-collector]
 
   jaeger:
-    image: jaegertracing/all-in-one:1.57
+    image: jaegertracing/all-in-one:1.64.0
     container_name: jaeger
     restart: unless-stopped
     environment:
       - COLLECTOR_OTLP_ENABLED=true
       - METRICS_STORAGE_TYPE=prometheus
       - PROMETHEUS_SERVER_URL=http://prometheus:9090
-      # Desabilitar completamente a auto-instrumentação do Jaeger
-      - OTEL_TRACES_EXPORTER=none
-      - OTEL_METRICS_EXPORTER=none
-      - OTEL_LOGS_EXPORTER=none
-      - OTEL_SDK_DISABLED=true
+      - PROMETHEUS_QUERY_NAMESPACE=spanmetrics     # <-- ADICIONE isto
+      # Configuração específica para Service Performance Monitoring (SPM)  
+      - PROMETHEUS_QUERY_SUPPORT_SPANMETRICS_CONNECTOR=true
+      - PROMETHEUS_QUERY_NORMALIZE_CALLS=true
+      - PROMETHEUS_QUERY_NORMALIZE_DURATION=true
+      - PROMETHEUS_QUERY_LATENCY_UNIT=ms
     ports:
       - "16686:16686"
