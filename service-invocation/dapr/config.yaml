@@ -9,7 +9,7 @@ spec:
       endpointAddress: "otel-collector:4318"
       protocol: "http"
       isSecure: false
-    # Excluir rotas de métricas e health checks do tracing (usando wildcards)
+    # Exclude metrics and health check routes from tracing (using wildcards)
     excludedRoutes:
       - "/metrics"
       - "/health"
@@ -17,7 +17,7 @@ spec:
       - "*/method/health"
       - "/v1.0/invoke/*/method/metrics"
       - "/v1.0/invoke/*/method/health"
-  # Configurações de acesso para garantir segurança
+  # Access control settings to ensure security
   accessControl:
     defaultAction: allow
     trustDomain: "public"

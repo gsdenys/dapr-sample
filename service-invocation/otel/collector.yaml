@@ -10,7 +10,7 @@ connectors:
       explicit:
         buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s]
     metrics_flush_interval: 15s
-    # Configuração para compatibilidade com Jaeger
+    # Configuration for Jaeger compatibility
     exemplars:
       enabled: false
 
@@ -50,8 +50,6 @@ processors:
           - ".*method/metrics.*"
           - ".*method/health.*"
           - ".*jaeger.*"
-
-  
 
 service:
   pipelines:

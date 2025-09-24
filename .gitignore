@@ -1,0 +1,86 @@
+# ==========================
+# Python
+# ==========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pdb
+*.egg
+*.egg-info/
+.eggs/
+*.manifest
+*.spec
+
+# Virtualenvs (geral)
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Pyenv local version file
+.python-version
+
+# PyInstaller
+# (arquivos gerados ao empacotar scripts Python)
+build/
+dist/
+
+# Coverage / Test / Reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+test-results/
+
+# MyPy / Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Pylint / Flake8
+pylint-report.txt
+flake8-report.txt
+
+# Logs e dumps
+*.log
+*.out
+*.err
+*.dump
+
+# IDEs e editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS / Linux / misc
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# Poetry
+poetry.lock
+*.toml.__temp__
+
+# Pyenv build cache
+.python-build/

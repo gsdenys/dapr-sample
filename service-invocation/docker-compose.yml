@@ -1,5 +1,5 @@
 services:
-  # ===================== SIDECARS (devem vir primeiro) ====================
+  # ===================== SIDECARS (must come first) ====================
   service-a-daprd:
     image: "daprio/daprd:1.14.4"
     command: [
@@ -12,9 +12,9 @@ services:
       "-config","/dapr/config.yaml"
     ]
     ports:
-      - "3500:3500"  # Porta HTTP do sidecar exposta
-      - "50001:50001"  # Porta gRPC do sidecar exposta
-      - "9092:9092"  # Porta de métricas do sidecar exposta
+      - "3500:3500"  # Sidecar HTTP port exposed
+      - "50001:50001"  # Sidecar gRPC port exposed
+      - "9092:9092"  # Sidecar metrics port exposed
     volumes:
       - ./dapr:/dapr
     depends_on: [otel-collector]
@@ -31,14 +31,16 @@ services:
       "-config","/dapr/config.yaml"
     ]
     ports:
-      - "3501:3501"  # Porta HTTP do sidecar exposta
-      - "50002:50002"  # Porta gRPC do sidecar exposta
-      - "9091:9091"  # Porta de métricas do sidecar exposta
+      - "3501:3501"  # Sidecar HTTP port exposed
+      - "50002:50002"  # Sidecar gRPC port exposed
+      - "9091:9091"  # Sidecar metrics port exposed
     volumes:
       - ./dapr:/dapr
     depends_on: [otel-collector]
 
-  # ===================== APPS (ficam atrás dos sidecars) =====================
+
+
+  # ===================== APPS (run behind sidecars) =====================
   service-a:
     build: ./services/service-a
     container_name: service-a
@@ -56,6 +58,7 @@ services:
       - DAPR_HTTP=http://localhost:3501
     depends_on: [service-b-daprd]
 
+
   # ===================== OBSERVABILITY =====================
 
   otel-collector:
@@ -64,7 +67,7 @@ services:
     restart: unless-stopped
     command: ["--config=/etc/otel/collector.yaml"]
     ports:
-      - "8889:8889"  # Porta de métricas do spanmetrics connector
+      - "8889:8889"  # Spanmetrics connector metrics port
     volumes:
       - ./otel/collector.yaml:/etc/otel/collector.yaml:ro
     depends_on: [jaeger]
@@ -88,8 +91,8 @@ services:
       - COLLECTOR_OTLP_ENABLED=true
       - METRICS_STORAGE_TYPE=prometheus
       - PROMETHEUS_SERVER_URL=http://prometheus:9090
-      - PROMETHEUS_QUERY_NAMESPACE=spanmetrics     # <-- ADICIONE isto
-      # Configuração específica para Service Performance Monitoring (SPM)  
+      - PROMETHEUS_QUERY_NAMESPACE=spanmetrics     
+      # Specific configuration for Service Performance Monitoring (SPM)  
       - PROMETHEUS_QUERY_SUPPORT_SPANMETRICS_CONNECTOR=true
       - PROMETHEUS_QUERY_NORMALIZE_CALLS=true
       - PROMETHEUS_QUERY_NORMALIZE_DURATION=true
