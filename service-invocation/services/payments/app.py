@@ -12,5 +12,5 @@ def health():
 @app.post("/charge")
 async def charge(req: Request):
     data = await req.json()
-    # aqui você processaria o pagamento de fato
+
     return {"status": "charged", "data": data}
