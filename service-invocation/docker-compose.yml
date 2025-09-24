@@ -41,18 +41,18 @@ services:
 
 
   # ===================== APPS (run behind sidecars) =====================
-  service-a:
-    build: ./services/service-a
-    container_name: service-a
+  orders:
+    build: ./services/orders
+    container_name: orders
     network_mode: "service:service-a-daprd"
     environment:
       - DAPR_HTTP=http://localhost:3500
       - TARGET_APP_ID=payments
     depends_on: [service-a-daprd]
 
-  service-b:
-    build: ./services/service-b
-    container_name: service-b
+  payments:
+    build: ./services/payments
+    container_name: payments
     network_mode: "service:service-b-daprd"
     environment:
       - DAPR_HTTP=http://localhost:3501
