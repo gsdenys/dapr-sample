@@ -1,26 +1,31 @@
-# Dapr Redis Request-Response Demo
+# Dapr Request-Reply over Redis (WebSocket Gateway)
 
-This project showcases synchronous request-response communication using [Dapr](https://dapr.io/) sidecars around two FastAPI applications. An `orders` service publishes charge requests over Dapr pub/sub backed by Redis and waits for the `payments` service to reply on a dedicated Redis channel (`orders.response.<correlation_id>`), all while exporting metrics and traces for observability tooling.
+Este projeto demonstra um padrão de request-reply usando **Dapr Pub/Sub (Redis)** entre dois serviços FastAPI:
 
-## Project layout
+* `gateway`: expõe um endpoint **WebSocket** (`/ws`) para clientes externos. Cada mensagem recebida gera um publish em um tópico Redis através do sidecar Dapr.
+* `worker`: consome mensagens do tópico, processa a carga e envia a resposta em outro tópico de reply.
+
+O `gateway` correlaciona a resposta usando um `correlationId` interno e envia o resultado de volta ao cliente WebSocket. Observabilidade é fornecida via **Prometheus** (métricas), **Jaeger** (traces OTEL emitidos pelos sidecars) e **OpenTelemetry Collector** (pipeline central).
+
+## Estrutura do projeto
 
 ```
 .
 ├── docker-compose.yml           # Orchestrates services, sidecars, and observability stack
 ├── dapr/                        # Dapr configuration (tracing, access control)
 ├── services/
-│   ├── orders/                  # FastAPI app that publishes charge requests via Dapr pub/sub
-│   └── payments/                # FastAPI app that processes charges and replies
+│   ├── gateway/                 # FastAPI + WebSocket; publica em 'requests' e aguarda 'responses'
+│   └── worker/                  # FastAPI; consome 'requests' e publica em 'responses'
 ├── otel/collector.yaml          # OpenTelemetry Collector pipeline feeding Jaeger & Prometheus
 └── observability/prometheus.yml # Prometheus scrape configuration for Dapr sidecars
 ```
 
-## Prerequisites
+## Pré-requisitos
 
 - Docker and Docker Compose v2+
 - Optional: `curl` or a similar HTTP client for testing requests
 
-## Running locally
+## Executando localmente
 
 1. Build and start the stack:
    ```bash
@@ -31,80 +36,93 @@ This project showcases synchronous request-response communication using [Dapr](h
 
 To stop the stack, press `Ctrl+C` and optionally remove containers with `docker compose down`.
 
-## Services and ports
+## Serviços e portas
 
-| Component            | Endpoint / Port                | Notes |
-| -------------------- | ------------------------------ | ----- |
-| Dapr sidecar (orders)| `http://localhost:3500`        | Invoked by clients to reach the `orders` service |
-| Dapr sidecar (payments)| `http://localhost:3501`      | Used by Dapr to deliver pub/sub messages to `payments` |
-| Orders FastAPI app   | `http://localhost:8001`        | Exposed inside the mesh only (via sidecar) |
-| Payments FastAPI app | `http://localhost:8002`        | Exposed inside the mesh only (via sidecar) |
-| Redis (pub/sub broker)| `redis://localhost:6379`      | Backing store for `orders.request` and `orders.response.*` |
-| Prometheus UI        | `http://localhost:9090`        | Metrics explorer |
-| Jaeger UI            | `http://localhost:16686`       | Trace viewer |
+| Componente                 | Endpoint / Porta                 | Observação |
+|--------------------------- |----------------------------------|------------|
+| Sidecar Dapr (gateway)     | `http://localhost:3500`          | Porta HTTP do sidecar (publish, invoke, healthz) |
+| Sidecar Dapr (worker)      | `http://localhost:3502`          | Porta HTTP do sidecar do worker |
+| App Gateway (FastAPI)      | `ws://localhost:8081/ws`         | WebSocket exposto (host 8081 -> container 8080) |
+| App Worker (FastAPI)       | (rede interna docker)            | Não exposto direto; só via sidecar |
+| Redis                      | `redis://localhost:6379`         | Broker Pub/Sub (component `messagebus`) |
+| Prometheus UI              | `http://localhost:9090`          | Consulta de métricas |
+| Jaeger UI                  | `http://localhost:16686`         | Visualização de traces |
+| OTEL Collector (spanmetrics)| `http://localhost:8889/metrics` | Métricas agregadas de spans |
 
-## Example requests
+Métricas dos apps FastAPI: `/metrics` diretamente em `gateway:8080` e `worker:8080` (Prometheus coleta via rede interna) + métricas dos sidecars nas portas 9092 (gateway) e 9091 (worker).
 
-### Health checks
+## Exemplos
 
-Use the Dapr sidecars to hit the health endpoints:
-
-```bash
-curl http://localhost:3500/v1.0/healthz
-curl http://localhost:3501/v1.0/healthz
-```
-
-The FastAPI apps themselves expose `/health` behind the sidecars:
+### Health
 
 ```bash
-curl http://localhost:3500/v1.0/invoke/orders/method/health
-curl http://localhost:3501/v1.0/invoke/payments/method/health
+curl http://localhost:3500/v1.0/healthz              # Sidecar gateway
+curl http://localhost:3502/v1.0/healthz              # Sidecar worker
+curl http://localhost:3500/v1.0/invoke/gateway/method/health
+curl http://localhost:3502/v1.0/invoke/worker/method/health
 ```
 
-### Invoke payments through orders
+### Métricas
 
-Call the `orders` service, which publishes the request to Redis (`orders.request`) and waits for `payments` to answer on a dedicated `orders.response.<correlation_id>` channel:
+Direto (rede interna docker):
+```
+http://gateway:8080/metrics
+http://worker:8080/metrics
+```
+Via Prometheus UI: `http://localhost:9090`.
 
+### WebSocket (request-reply)
+
+Abra uma sessão e envie mensagens JSON:
 ```bash
-curl -X POST \
-  http://localhost:3500/v1.0/invoke/orders/method/orders/123/charge \
-  -H "Content-Type: application/json" \
-  -d '{"amount": 45.90}'
+npx wscat -c ws://localhost:8081/ws
+> {"hello": "Something"}
+< {"ok": true, "echo": {"hello": "Something"}, "processedBy": "worker-1"}
 ```
 
-Expected response (abbreviated):
+Cada mensagem gera:
+1. Publish em `requests`.
+2. Processamento no `worker`.
+3. Publish de volta em `responses`.
+4. Entrega ao `gateway` e envio ao cliente WebSocket.
 
+Campos internos usados:
+* `correlationId`: correlaciona request-reply no gateway.
+* `replyTopic`: indica o tópico de resposta (`responses`).
+
+### Pub/Sub Subscription Discovery
+
+O Dapr descobre os tópicos lendo `GET /dapr/subscribe` em cada app.
+
+`gateway` responde (exemplo):
 ```json
-{
-  "invoked": true,
-  "payments_response": {
-    "status": "charged",
-    "service": "payments",
-    "data": {
-      "order_id": "123",
-      "amount": 45.9,
-      "correlation_id": "...",
-      "transaction_id": "...",
-      "processed_at": "2024-08-30T12:34:56.789Z",
-      "approved": true
-    }
-  }
-}
+[{"pubsubname":"messagebus","topic":"responses","route":"/responses"}]
 ```
 
-The `orders` service logs the payment payload when it arrives on `orders.response.<correlation_id>`, so you should also see an entry similar to:
-
+`worker` responde:
+```json
+[{"pubsubname":"messagebus","topic":"requests","route":"/requests"}]
 ```
-INFO:orders:Payment processed for order 123: {...}
-```
 
-## Observability
+## Observabilidade
 
-- **Tracing:** Dapr publishes spans to the OpenTelemetry Collector, which exports them to Jaeger. Open the UI at `http://localhost:16686` to inspect traces for `orders` and `payments`.
-- **Metrics:** The collector aggregates service metrics and exposes them to Prometheus at `http://localhost:9090`. Dapr sidecars also expose `/metrics` endpoints that are scraped by Prometheus.
-- **Dashboards:** Import Prometheus metrics into Grafana or another visualization tool if desired (not bundled by default).
+| Aspecto | Detalhes |
+|---------|----------|
+| Tracing | Sidecars exportam spans OTLP -> Collector -> Jaeger (`http://localhost:16686`). Mensagens Pub/Sub podem aparecer como traces separados (publish vs entrega) se não houver propagação contínua. |
+| Métricas Apps | `/metrics` (FastAPI + `prometheus-fastapi-instrumentator`). |
+| Métricas Sidecars | Portas 9092 (gateway) e 9091 (worker). |
+| Spanmetrics | Collector expõe métricas agregadas de spans em `:8889/metrics`. |
+| Exclusões | Rotas `/metrics` e `/health` excluídas de tracing (ver `dapr/config.yaml`). |
 
-## Customization tips
+Principais métricas de interesse (Prometheus):
+* `http_requests_total{service="gateway"}` (app)
+* `pending` (potencial métrica custom futura para requests em voo)
+* `dapr_runtime_pubsub_published_total`
+* Latência de spans via `spanmetrics_latency_bucket` (namespace configurado)
+
+Jaeger mostrará arestas `gateway -> worker` e `worker -> gateway` conforme publish/resposta. Diferenças de contagem podem ocorrer devido à natureza assíncrona.
+
+## Personalização
 
 - Adjust Dapr configuration in `dapr/config.yaml` to change tracing or access control behavior.
 - Update the FastAPI apps under `services/` to represent your own business logic.
@@ -112,6 +130,8 @@ INFO:orders:Payment processed for order 123: {...}
 
 ## Troubleshooting
 
-- Ensure no other process occupies ports `3500-3501`, `50001-50002`, `8889`, `9090`, or `16686`.
-- If requests time out, confirm the sidecars are running and that Redis is reachable on `redis:6379` from both sidecars.
-- Use `docker compose logs orders` or `docker compose logs payments` to inspect application logs.
+- Conexão WebSocket retorna 404: confirme que `uvicorn[standard]` foi instalado (suporte a websockets) e container rebuildado.
+- Sem mensagens no worker: verifique `docker compose logs worker-daprd` e se Redis está acessível (`redis:6379`).
+- Trace “metade”: publish e consumo podem cair em traces diferentes sem instrumentação extra — esperado.
+- Métricas ausentes: valide targets no `observability/prometheus.yml`.
+- Ajustar sampling: editar `dapr/config.yaml` (`spec.tracing.samplingRate`).
