@@ -51,6 +51,59 @@ To stop the stack, press `Ctrl+C` and optionally remove containers with `docker 
 
 Métricas dos apps FastAPI: `/metrics` diretamente em `gateway:8080` e `worker:8080` (Prometheus coleta via rede interna) + métricas dos sidecars nas portas 9092 (gateway) e 9091 (worker).
 
+## Fluxo (Sequence Diagram)
+Below are two sequence diagrams illustrating the request-reply flow in this project. The first provides a simplified view, highlighting only the main participants and steps in the process. The second offers a more detailed flow, including the interactions between Dapr sidecars, Redis topics, and timeout handling, enabling a more comprehensive understanding of the architecture and involved components.
+
+#### Simplified Diagram
+```mermaid
+sequenceDiagram
+    participant Client as WebSocket Client
+    participant GW as Gateway (FastAPI + Dapr sidecar)
+    participant Bus as Dapr Pub/Sub (Redis)
+    participant W as Worker (FastAPI + Dapr sidecar)
+
+    Client->>GW: send(msg)
+    GW->>GW: Create correlationId
+    GW->>Bus: publish topic=requests {correlationId, payload, replyTopic=responses}
+    Bus->>W: POST /requests (Dapr entrega)
+    W->>W: Process payload
+    W->>Bus: publish topic=responses {correlationId, result}
+    Bus->>GW: POST /responses (Dapr entrega)
+    GW->>GW: Resolve Future(correlationId)
+    GW-->>Client: resposta
+```
+
+#### Derailed Diagram
+
+```mermaid
+sequenceDiagram
+   autonumber
+   participant Client as WebSocket Client
+   participant GW as gateway (FastAPI)
+   participant GSD as gateway-daprd
+   participant Redis as Redis Pub/Sub
+   participant WSD as worker-daprd
+   participant WK as worker (FastAPI)
+
+   Client->>GW: JSON message
+   GW->>GW: Create correlationId & Future
+   GW->>GSD: POST /v1.0/publish/requests
+   GSD->>Redis: PUBLISH requests
+   Redis-->>WSD: Message (requests)
+   WSD->>WK: POST /requests
+   WK-->>WSD: 200 OK
+   WK->>WSD: POST /v1.0/publish/responses
+   WSD->>Redis: PUBLISH responses
+   Redis-->>GSD: Message (responses)
+   GSD->>GW: POST /responses
+   GW->>GW: Resolve Future
+   GW-->>Client: JSON result
+
+   alt Timeout
+      GW-->>Client: {"error":"timeout waiting"}
+   end
+```
+
 ## Exemplos
 
 ### Health
