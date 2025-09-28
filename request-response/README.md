@@ -73,7 +73,7 @@ sequenceDiagram
     GW-->>Client: resposta
 ```
 
-#### Derailed Diagram
+#### Detailed Diagram
 
 ```mermaid
 sequenceDiagram
