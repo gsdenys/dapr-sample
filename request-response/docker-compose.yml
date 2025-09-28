@@ -1,0 +1,105 @@
+services:
+  # ===================== SIDECARS (compartilham rede com o app) =====================
+  gateway-daprd:
+    image: "daprio/daprd:1.14.4"
+    command: [
+      "./daprd",
+      "-app-id", "gateway",
+      "-app-port", "8080",
+      "-dapr-http-port", "3500",
+      "-dapr-grpc-port","50001",
+      "-metrics-port","9092",
+      "-config", "/dapr/config.yaml",
+      "-components-path", "/components"
+    ]
+    network_mode: "service:gateway"     # <- compartilha namespace de rede com o app
+    volumes:
+      - ./dapr:/dapr
+      - ./components:/components
+    depends_on: [gateway, otel-collector]
+
+  worker-daprd:
+    image: "daprio/daprd:1.14.4"
+    command: [
+      "./daprd",
+      "-app-id", "worker",
+      "-app-port", "8080",
+      "-dapr-http-port", "3502",
+      "-dapr-grpc-port","50002",
+      "-metrics-port","9091",
+      "-config","/dapr/config.yaml",
+      "-components-path", "/components"
+    ]
+    network_mode: "service:worker"      # <- compartilha namespace de rede com o app
+    volumes:
+      - ./dapr:/dapr
+      - ./components:/components
+    depends_on: [worker, otel-collector]
+
+
+  # ===================== APPS (rodam "atrás" dos sidecars) =====================
+  gateway:
+    build: ./services/gateway
+    environment:
+      DAPR_HTTP: http://localhost:3500   # <- bate com -dapr-http-port do sidecar
+      PUBSUB: messagebus
+      REQUEST_TOPIC: requests
+      REPLY_TOPIC: responses
+      REQUEST_TIMEOUT_SEC: "15"
+    ports: ["8081:8080"]                 # expõe somente o app (WebSocket)
+    depends_on: [redis]
+
+  worker:
+    build: ./services/worker
+    environment:
+      DAPR_HTTP: http://localhost:3502   # <- bate com -dapr-http-port do sidecar
+      PUBSUB: messagebus
+      REQUEST_TOPIC: requests
+    depends_on: [redis]
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+
+  # ===================== OBSERVABILITY =====================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.103.1
+    container_name: otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel/collector.yaml"]
+    ports:
+      - "8889:8889"  # Spanmetrics connector metrics port
+    volumes:
+      - ./otel/collector.yaml:/etc/otel/collector.yaml:ro
+    depends_on: [jaeger]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: prometheus
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on: [otel-collector]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.64.0
+    container_name: jaeger
+    restart: unless-stopped
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - METRICS_STORAGE_TYPE=prometheus
+      - PROMETHEUS_SERVER_URL=http://prometheus:9090
+      - PROMETHEUS_QUERY_NAMESPACE=spanmetrics
+      - PROMETHEUS_QUERY_SUPPORT_SPANMETRICS_CONNECTOR=true
+      - PROMETHEUS_QUERY_NORMALIZE_CALLS=true
+      - PROMETHEUS_QUERY_NORMALIZE_DURATION=true
+      - PROMETHEUS_QUERY_LATENCY_UNIT=ms
+    ports:
+      - "16686:16686"

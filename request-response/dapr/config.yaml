@@ -1,0 +1,23 @@
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: tracing
+spec:
+  tracing:
+    samplingRate: "1"
+    otel:
+      endpointAddress: "otel-collector:4318"
+      protocol: "http"
+      isSecure: false
+    # Exclude metrics and health check routes from tracing (using wildcards)
+    excludedRoutes:
+      - "/metrics"
+      - "/health"
+      - "*/method/metrics"
+      - "*/method/health"
+      - "/v1.0/invoke/*/method/metrics"
+      - "/v1.0/invoke/*/method/health"
+  # Access control settings to ensure security
+  accessControl:
+    defaultAction: allow
+    trustDomain: "public"
