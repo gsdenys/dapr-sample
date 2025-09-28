@@ -84,3 +84,5 @@ poetry.lock
 
 # Pyenv build cache
 .python-build/
+
+.DS_Store
